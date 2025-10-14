@@ -64,8 +64,7 @@ jobs:
           echo "Creating release for tag: ${TAG_NAME}"
           API_URL="https://api.github.com/repos/${{ github.repository }}/releases"
           RELEASE_TITLE="Release ${TAG_NAME}"
-          RELEASE_BODY="### Features promoted to PROD
-${FEATURES}"
+          RELEASE_BODY="### Features promoted to PROD ${FEATURES}"
 
           RESPONSE=$(curl -s -X POST \
             -H "Authorization: token ${GITHUB_TOKEN}" \
