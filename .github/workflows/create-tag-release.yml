@@ -26,8 +26,8 @@ jobs:
           echo "Initializing Git repository..."
           git init
           git remote add origin "https://github.com/${{ github.repository }}.git"
-          git fetch origin prod
-          git checkout prod
+          git fetch origin feature/testtag1
+          git checkout feature/testtag1
 
       - name: Configure Git
         run: |
