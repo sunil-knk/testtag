@@ -1,0 +1,81 @@
+name: Create Tag and Release Notes
+
+on:
+  push:
+    branches:
+      - testtag
+  pull_request:
+    types: [closed]
+    branches:
+      - testtag
+
+jobs:
+  create_tag_and_release:
+    if: |
+      github.event_name == 'push' ||
+      (github.event_name == 'pull_request' &&
+       github.event.pull_request.merged == true &&
+       startsWith(github.event.pull_request.title, 'Sprint Release'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Initialize repository
+        run: |
+          echo "Initializing Git repository..."
+          git init
+          git remote add origin "https://github.com/${{ github.repository }}.git"
+          git fetch origin prod
+          git checkout prod
+
+      - name: Configure Git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Generate Tag Name
+        id: tag
+        run: |
+          TAG_NAME="v$(date +'%Y.%m.%d-%H%M')"
+          echo "TAG_NAME=${TAG_NAME}" >> $GITHUB_ENV
+          echo "Generated tag: ${TAG_NAME}"
+
+      - name: Extract Feature Branches
+        id: features
+        run: |
+          echo "Collecting feature branches from recent commits..."
+          FEATURES=$(git log -20 --pretty=format:"%s" | grep -E "feature/" || echo "No feature branches found.")
+          echo "FEATURES<<EOF" >> $GITHUB_ENV
+          echo "$FEATURES" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+
+      - name: Create Git Tag
+        run: |
+          git tag -a "${TAG_NAME}" -m "Release ${TAG_NAME}"
+          git push origin "${TAG_NAME}"
+
+      - name: Create GitHub Release via API
+        env:
+          GITHUB_TOKEN: ${{ secrets.SUNIL1_TOKEN }}
+          TAG_NAME: ${{ env.TAG_NAME }}
+          FEATURES: ${{ env.FEATURES }}
+        run: |
+          echo "Creating release for tag: ${TAG_NAME}"
+          API_URL="https://api.github.com/repos/${{ github.repository }}/releases"
+          RELEASE_TITLE="Release ${TAG_NAME}"
+          RELEASE_BODY="### Features promoted to PROD
+${FEATURES}"
+
+          RESPONSE=$(curl -s -X POST \
+            -H "Authorization: token ${GITHUB_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            ${API_URL} \
+            -d "$(jq -n \
+              --arg tag_name "${TAG_NAME}" \
+              --arg name "${RELEASE_TITLE}" \
+              --arg body "${RELEASE_BODY}" \
+              '{tag_name: $tag_name, name: $name, body: $body, draft: false, prerelease: false}')")
+
+          echo "GitHub Release API response:"
+          echo "$RESPONSE"
