@@ -1,0 +1,80 @@
+name: Create Release Notes
+
+on:
+  pull_request:
+    types: [closed]
+    branches:
+      - testtag
+
+jobs:
+  create_release:
+    if: |
+      github.event.pull_request.merged == true &&
+      startsWith(github.event.pull_request.title, 'Sprint Release')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    env:
+      GITHUB_TOKEN: ${{ secrets.SUNIL1_TOKEN }}
+      REPO: ${{ github.repository }}
+
+    steps:
+      - name: Initialize repository
+        run: |
+          echo "Initializing repository..."
+          git init
+          git remote add origin https://github.com/${REPO}.git
+          git fetch origin testtag --tags
+          git checkout testtag
+
+      - name: Determine Latest Tag
+        id: latest_tag
+        run: |
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "none")
+          echo "Latest tag: $LATEST_TAG"
+          echo "LATEST_TAG=$LATEST_TAG" >> $GITHUB_ENV
+
+      - name: Generate New Tag
+        id: new_tag
+        run: |
+          TAG_NAME="v$(date +'%Y.%m.%d-%H%M')"
+          echo "Generated tag: $TAG_NAME"
+          echo "TAG_NAME=$TAG_NAME" >> $GITHUB_ENV
+
+      - name: Collect Feature/Hotfix Commits Before Current Release
+        id: features
+        run: |
+          echo "Collecting historical commits (features/hotfixes)..."
+          # This finds commits before the latest tag that match "feature" or "hotfix"
+          if [ "$LATEST_TAG" != "none" ]; then
+            COMMITS=$(git log $LATEST_TAG..HEAD --pretty=format:"- %s (%h)" | grep -E "feature|hotfix|DCSM|Fix|Bug" || echo "No recent features/hotfixes found.")
+          else
+            COMMITS=$(git log --pretty=format:"- %s (%h)" | grep -E "feature|hotfix|DCSM|Fix|Bug" || echo "No features/hotfixes found.")
+          fi
+          echo "COMMITS<<EOF" >> $GITHUB_ENV
+          echo "$COMMITS" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+
+      - name: Push New Tag to GitHub
+        run: |
+          git tag -a "$TAG_NAME" -m "Release $TAG_NAME"
+          git push origin "$TAG_NAME"
+
+      - name: Create GitHub Release (Generate Notes)
+        run: |
+          echo "Creating GitHub release with auto-generated notes..."
+          RELEASE_TITLE="Release ${TAG_NAME}"
+          RELEASE_BODY="### Auto-generated Release Notes\n\n**Features/Hotfixes included before current release:**\n${COMMITS}"
+
+          curl -s -X POST \
+            -H "Authorization: token ${GITHUB_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/${REPO}/releases \
+            -d "$(jq -n \
+              --arg tag_name "${TAG_NAME}" \
+              --arg target_commitish "PROD" \
+              --arg name "${RELEASE_TITLE}" \
+              --arg body "${RELEASE_BODY}" \
+              --argjson generate_release_notes true \
+              '{tag_name: $tag_name, target_commitish: $target_commitish, name: $name, body: $body, draft: false, prerelease: false, generate_release_notes: $generate_release_notes}')"
