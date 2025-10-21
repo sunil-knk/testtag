@@ -4,7 +4,7 @@ on:
   pull_request:
     types: [closed]
     branches:
-      - PROD
+      - testtag
 
 jobs:
   create_release:
