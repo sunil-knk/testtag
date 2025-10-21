@@ -1,0 +1,63 @@
+name: 21 OCT 2025
+
+on:
+  pull_request:
+    types: [closed]
+    branches:
+      - PROD
+
+jobs:
+  create_release:
+    if: >
+      github.event.pull_request.merged == true &&
+      startsWith(github.event.pull_request.title, 'Sprint Release:')
+    runs-on: ubuntu-latest
+
+    env:
+      GITHUB_TOKEN: ${{ secrets.SUNIL1_TOKEN }}
+      REPO: ${{ github.repository }}
+      PR_TITLE: ${{ github.event.pull_request.title }}
+      BASE_BRANCH: ${{ github.event.pull_request.base.ref }}
+      HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+
+    steps:
+      - name: Checkout Repository
+        run: |
+          git init
+          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${REPO}.git"
+          git fetch origin ${BASE_BRANCH}
+          git checkout ${BASE_BRANCH}
+
+      - name: Extract Release Branch Name
+        run: |
+          echo "Pull Request Title: ${PR_TITLE}"
+          RELEASE_BRANCH=$(echo "${PR_TITLE}" | grep -oE 'release/[a-zA-Z0-9._-]+')
+          if [ -z "$RELEASE_BRANCH" ]; then
+            echo "No valid release branch name found in PR title. Exiting."
+            exit 0
+          fi
+          echo "RELEASE_BRANCH=${RELEASE_BRANCH}" >> $GITHUB_ENV
+
+      - name: Generate Tag Name
+        run: |
+          TAG_NAME=$(echo "${RELEASE_BRANCH}" | sed 's|release/||')
+          echo "TAG_NAME=${TAG_NAME}" >> $GITHUB_ENV
+          echo "Tag to create: ${TAG_NAME}"
+
+      - name: Create Tag and Push
+        run: |
+          git tag -a "${TAG_NAME}" -m "Tag created for ${PR_TITLE}"
+          git push origin "${TAG_NAME}"
+
+      - name: Create Release with Auto Notes
+        run: |
+          echo "Creating GitHub Release for ${TAG_NAME}"
+          API_URL="https://api.github.com/repos/${REPO}/releases"
+          PAYLOAD=$(jq -n \
+            --arg tag_name "$TAG_NAME" \
+            --arg name "$TAG_NAME" \
+            '{ tag_name: $tag_name, name: $name, generate_release_notes: true }')
+          
+          curl -s -X POST -H "Authorization: token ${GITHUB_TOKEN}" \
+               -H "Accept: application/vnd.github+json" \
+               -d "$PAYLOAD" "$API_URL"
